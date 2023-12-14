@@ -9,6 +9,10 @@ const { RNExpoReadSms } = NativeModules;
 
 export default RNExpoReadSms;
 
+// we need a lock to ensure that only one listener is registered at a time
+let listenerRegistered = false;
+const smsEventEmitter = new NativeEventEmitter(RNExpoReadSms);
+
 export async function startReadSMS(callback) {
   let resultFun = (status, sms, error) => {
     if (callback) {
@@ -18,14 +22,16 @@ export async function startReadSMS(callback) {
   if (Platform.OS === "android") {
     const hasPermission = await checkIfHasSMSPermission();
     if (hasPermission) {
+      if (listenerRegistered) {
+        resultFun("error", "", "Already listening for incoming sms");
+        return;
+      }
+      listenerRegistered = true;
       RNExpoReadSms.startReadSMS(
         (result) => {
-          new NativeEventEmitter(RNExpoReadSms).addListener(
-            "received_sms",
-            (sms) => {
-              resultFun("success", sms);
-            }
-          );
+          smsEventEmitter.addListener("received_sms", (sms) => {
+            resultFun("success", sms);
+          });
         },
         (error) => {
           resultFun("error", "", error);
@@ -62,7 +68,11 @@ export const checkIfHasSMSPermission = async () => {
 export async function requestReadSMSPermission() {
   if (Platform.OS === "android") {
     const hasPermission = await checkIfHasSMSPermission();
-    if (hasPermission.hasReadSmsPermission && hasPermission.hasReceiveSmsPermission) return true;
+    if (
+      hasPermission.hasReadSmsPermission &&
+      hasPermission.hasReceiveSmsPermission
+    )
+      return true;
     const status = await PermissionsAndroid.requestMultiple([
       PermissionsAndroid.PERMISSIONS.RECEIVE_SMS,
       PermissionsAndroid.PERMISSIONS.READ_SMS,
